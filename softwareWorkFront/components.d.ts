@@ -10,10 +10,12 @@ declare module 'vue' {
   export interface GlobalComponents {
     IconContainer: typeof import('./src/components/iconContainer.vue')['default']
     MainPageButton: typeof import('./src/components/MainPageButton.vue')['default']
+    MapComponent: typeof import('./src/components/mapComponent.vue')['default']
     NavBox: typeof import('./src/components/navBox.vue')['default']
     NavIcon: typeof import('./src/components/navIcon.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    Selector: typeof import('./src/components/selector.vue')['default']
     TopNavigation: typeof import('./src/components/topNavigation.vue')['default']
   }
 }

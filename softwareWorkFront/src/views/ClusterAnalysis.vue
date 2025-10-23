@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import topNavigation from '@/components/topNavigation.vue'
 import navBox from '@/components/navBox.vue'
+import MapComponent from '@/components/mapComponent.vue'
 
 const rainCanvas = ref(null)
 
@@ -56,6 +57,14 @@ onMounted(() => {
     <!-- 上方导航栏 -->
     <div class="gradient-box">
         <topNavigation />
+    </div>
+    <MapComponent
+    title="聚类分析"
+    />
+    <div class="button-container">
+        <button class="generate-chart-btn">
+        生成图表
+      </button>
     </div>
 </template>
 
@@ -121,5 +130,50 @@ onMounted(() => {
     100% {
         background-position: 0% 50%;
     }
+}
+.button-container{
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.generate-chart-btn {
+  /* 文字样式 */
+  font-weight: bold;
+  color: white;
+  font-size: 24px;
+  width: 150px;
+  
+  /* 按钮尺寸与边距 */
+  padding: 12px 24px;
+  border-radius: 8px;
+  border: none;
+  
+  /* 正常状态：更深的天蓝色到浅蓝渐变（比之前深一点） */
+  background: linear-gradient(135deg, #4DA6FF 0%, #E6F2FF 100%);
+  
+  /* 基础样式 */
+  cursor: pointer;
+  box-shadow: 0 3px 5px rgba(77, 166, 255, 0.25);
+  
+  /* 过渡动画 */
+  transition: all 0.3s ease;
+}
+
+.generate-chart-btn:hover {
+  /* 悬浮状态：稍浅的蓝色渐变（与正常状态差异更小） */
+  background: linear-gradient(135deg, #6BA5D7 0%, #A6D1FF 100%);
+  
+  /* 轻微上浮效果（比之前幅度小） */
+  transform: translateY(-2px);
+  
+  /* 柔和阴影变化 */
+  box-shadow: 0 5px 8px rgba(107, 165, 215, 0.3);
+}
+
+.generate-chart-btn:active {
+  /* 点击状态下沉 */
+  transform: translateY(0);
+  box-shadow: 0 2px 3px rgba(77, 166, 255, 0.2);
 }
 </style>
