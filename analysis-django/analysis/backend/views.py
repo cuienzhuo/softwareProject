@@ -16,7 +16,6 @@ def anomaly_analysis_view(request):
                 'code': 400,
                 'error': '缺少参数：address或method'
             }, status=400)
-        
         # 调用业务逻辑
         image_url = AnalysisService.anomaly_analysis(
             address=data['address'],

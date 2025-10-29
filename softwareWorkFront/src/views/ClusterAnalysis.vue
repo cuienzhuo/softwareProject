@@ -3,8 +3,51 @@ import { onMounted, ref } from 'vue'
 import topNavigation from '@/components/topNavigation.vue'
 import navBox from '@/components/navBox.vue'
 import MapComponent from '@/components/mapComponent.vue'
+import api from '@/api'
 
 const rainCanvas = ref(null)
+
+const isLoading = ref(false)
+
+const frameUrl = ref('https://lost-andfound.oss-cn-shanghai.aliyuncs.com/picture/png_error.png')
+
+const selectedAreaName = ref('');
+
+// 父组件的事件处理函数，接收子组件传递的参数
+const handleAreaFromChild = (areaName) => {
+  selectedAreaName.value = areaName; // 将子组件传递的名称赋值给父组件变量
+  console.log('父组件接收:', areaName); // 可在父组件做后续逻辑（如请求数据、展示等）
+};
+
+const generateFrame = async () => {
+  if (!selectedAreaName.value) {
+    alert('请先选择区域和检测方法');
+    return;
+  }
+
+  try {
+    isLoading.value = true
+    // 2. 调用 api.post()，第二个参数传入包含 address 和 method 的 JSON 对象
+    const response = await api.post(
+      '/api/cluster-analysis/', // 替换为你的实际接口路径（如 /analysis/generate-chart）
+      {
+        address: selectedAreaName.value, // 传入地址（从地图组件获取的 selectedAreaName）
+      }
+    );
+
+    // 3. 请求成功后的处理（如获取返回的图表 URL、更新页面等）
+    console.log('请求成功，返回数据：', response.data);
+    frameUrl.value = response.data.image_url
+    // 示例：假设接口返回图表 URL，可存储起来用于展示
+    // chartUrl.value = response.data.image_url;
+    isLoading.value = false
+
+  } catch (error) {
+    // 4. 请求失败后的错误处理（如提示用户）
+    console.error('生成图表请求失败：', error);
+    alert('请求失败，请稍后重试');
+  }
+}
 
 onMounted(() => {
   const canvas = rainCanvas.value
@@ -60,12 +103,17 @@ onMounted(() => {
     </div>
     <MapComponent
     title="聚类分析"
+    @area-selected="handleAreaFromChild" 
     />
     <div class="button-container">
-        <button class="generate-chart-btn">
+        <button 
+        class="generate-chart-btn"
+        :disabled="!selectedAreaName || isLoading"
+          @click="generateFrame">
         生成图表
       </button>
     </div>
+    <imageComponent :frameUrl="frameUrl" :isLoading="isLoading"/>
 </template>
 
 <style scoped>
@@ -175,5 +223,16 @@ onMounted(() => {
   /* 点击状态下沉 */
   transform: translateY(0);
   box-shadow: 0 2px 3px rgba(77, 166, 255, 0.2);
+}
+.generate-chart-btn:disabled {
+  /* 禁用时的背景色（灰色渐变，无光泽） */
+  background: linear-gradient(135deg, #ccc 0%, #eee 100%);
+  /* 禁用时的鼠标样式（禁止符号） */
+  cursor: not-allowed;
+  /* 禁用时取消阴影和上浮效果 */
+  box-shadow: none;
+  transform: none;
+  /* 文字颜色变浅 */
+  color: #999;
 }
 </style>

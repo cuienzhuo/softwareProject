@@ -9,6 +9,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     IconContainer: typeof import('./src/components/iconContainer.vue')['default']
+    ImageComponent: typeof import('./src/components/imageComponent.vue')['default']
     MainPageButton: typeof import('./src/components/MainPageButton.vue')['default']
     MapComponent: typeof import('./src/components/mapComponent.vue')['default']
     NavBox: typeof import('./src/components/navBox.vue')['default']
@@ -17,5 +18,8 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     Selector: typeof import('./src/components/selector.vue')['default']
     TopNavigation: typeof import('./src/components/topNavigation.vue')['default']
+  }
+  export interface GlobalDirectives {
+    vLoading: typeof import('element-plus/es')['ElLoadingDirective']
   }
 }

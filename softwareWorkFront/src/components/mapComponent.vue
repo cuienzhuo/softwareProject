@@ -48,6 +48,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, defineProps, defineEmits, watch } from 'vue';
 
+const emits = defineEmits(['area-selected']);
 const props = defineProps({
   // 选择器标题
   title: {
@@ -153,6 +154,7 @@ const handleAreaClick = (index) => {
   // 打印区域名称到控制台
   const areaName = features.value[index].properties.NIL;
   console.log('选中的区域名称:', areaName);
+  emits('area-selected', areaName); 
   updateInfoBoxPosition();
 };
 
@@ -178,6 +180,7 @@ const updateInfoBoxPosition = () => {
 // 处理SVG点击（取消选择）
 const handleSvgClick = () => {
   selectedFeature.value = null;
+  emits('area-selected', '')
 };
 
 // 处理区域鼠标悬停

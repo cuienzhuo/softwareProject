@@ -1,5 +1,6 @@
 from django.db import transaction
 from .models import AnomalyAnalysis, ClusterAnalysis, FuturePrediction
+from .utils import ARIMAUtils,DLUtils,MLUtils,TransformerUtils,ExceptionUtils,ClusterUtils
 
 class ImageService:
     """图表存储服务（模拟图床功能，实际可对接阿里云OSS等）"""
@@ -16,16 +17,14 @@ class AnalysisService:
     def anomaly_analysis(address: str, method: str) -> str:
         """执行异常数据分析，返回结果图表URL"""
         # 1. 检查是否已有相同记录（避免重复计算）
+        print("检查数据库")
         existing = AnomalyAnalysis.objects.filter(method=method, address=address).first()
         if existing:
             return existing.image_url
-        
-        # 2. 执行分析（此处为模拟，实际需实现真实算法）
-        # 例如：调用异常检测算法处理数据
-        # analysis_result = anomaly_detection_algorithm(address, method)
-        
-        # 3. 生成图表并上传（模拟）
-        image_url = ImageService.upload_image()
+        print("进入分析部分")
+
+        # 生成图标并上传
+        image_url = ExceptionUtils.exceptionAnalysis(address,method)
         
         # 4. 保存记录到数据库
         AnomalyAnalysis.objects.create(
@@ -42,13 +41,9 @@ class AnalysisService:
         existing = ClusterAnalysis.objects.filter(address=address).first()
         if existing:
             return existing.image_url
-        
-        # 模拟聚类算法执行
-        # cluster_result = clustering_algorithm(address)
-        
-        # 上传图表
-        image_url = ImageService.upload_image()
-        
+
+        image_url = ClusterUtils.clusterAnalysis(address)
+
         # 保存记录
         ClusterAnalysis.objects.create(
             address=address,
@@ -63,13 +58,18 @@ class AnalysisService:
         existing = FuturePrediction.objects.filter(method=method, address=address).first()
         if existing:
             return existing.image_url
-        
-        # 模拟预测算法执行
-        # prediction_result = prediction_algorithm(address, method)
-        
-        # 上传图表
-        image_url = ImageService.upload_image()
-        
+
+        if method == "arima":
+            image_url = ARIMAUtils.arimaAnalysis(address)
+        elif method == "ML":
+            image_url = MLUtils.MLAnalysis(address)
+        elif method == "DL":
+            image_url = DLUtils.DLAnalysis(address)
+        elif method == "transformer":
+            image_url = TransformerUtils.transformerAnalysis(address)
+        else:
+            raise ValueError("输入方法有误")
+
         # 保存记录
         FuturePrediction.objects.create(
             method=method,
