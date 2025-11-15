@@ -2,13 +2,14 @@ import matplotlib
 matplotlib.use('Agg')  # 非交互式环境保存图片
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import joblib
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-import io
-from .OssUtils import OssUtils
+from sklearn.ensemble import RandomForestRegressor
 
+CSV_PATH = "E:\github01\softwareProject/analysis-django/analysis/backend/utils/milano_traffic_nid.csv"
 
+def mean_absolute_percentage_error(y_true, y_pred):
+    return np.mean(np.abs((y_true - y_pred) / y_true))
 # --------------------------
 # 1. 复用特征工程函数（必须与训练时一致）
 # --------------------------
@@ -52,8 +53,8 @@ def predict_and_compare(
     model_path,        # joblib模型路径
     target_column,     # 要预测的列名
     feature_cols_path, # 训练时的特征列列表（需提前保存，见下方说明）
-    backtest_start_pct=0.5,  # 回测起始点（数据的50%位置开始）
-    forecast_steps=24        # 预测步数（如24步=4小时，10分钟/步）
+    backtest_start_pct,  # 回测起始点（数据的50%位置开始）
+    forecast_steps       # 预测步数（如24步=4小时，10分钟/步）
 ):
     """
     用已有模型对历史数据进行预测，与真实值对比并绘图
@@ -112,60 +113,133 @@ def predict_and_compare(
         pred_values[:len(true_values)],
         index=true_values.index  # 用真实时间戳作为索引
     )
-
-    # 7. 计算评估指标
     rmse = np.sqrt(mean_squared_error(true_values, pred_series))
     mae = mean_absolute_error(true_values, pred_series)
-    print(f"\n预测评估指标：RMSE={rmse:.2f}, MAE={mae:.2f}")
+    mape = mean_absolute_percentage_error(true_values.values, pred_series.values)
 
-    # 8. 绘图（对比历史输入、预测值、真实值）
-    plt.figure(figsize=(15, 7))
-    # 输入历史数据（用于预测的部分）
-    plt.plot(input_hist.index[-50:], input_hist.values[-50:],
-             label='Input History (Last 50 Steps)', color='blue', alpha=0.6)
-    # 预测值
-    plt.plot(pred_series.index, pred_series.values,
-             label='Predicted Values', color='orange', linestyle='--', linewidth=2)
-    # 真实值
-    plt.plot(true_values.index, true_values.values,
-             label='True Values', color='green', linewidth=2)
-    # 标记预测起始点
-    plt.axvline(x=input_hist.index[-1], color='red', linestyle=':', label='Prediction Start')
+    print(f"\n预测评估指标：RMSE={rmse:.2f}, MAE={mae:.2f}, MAPE={mape:.2f}%")
 
-    plt.xlabel('Timestamp')
-    plt.ylabel('Value')
-    plt.title(f'Historical Prediction vs True Values: {target_column}')
-    plt.legend()
-    plt.xticks(rotation=45)
-    plt.tight_layout()
+    # 准备要传给前端的数据
+    result_data = {
+        "chartData":{
+            'timestamps': true_values.index.tolist(),
+            'true_values': true_values.values.tolist(),
+            'pred_values': pred_series.values.tolist()
+        },
+        'metrics': {
+            'rmse': rmse,
+            'mae': mae,
+            'mape': mape
+        }
+    }
 
-    buffer = io.BytesIO()  # 初始化内存缓冲区
-    plt.savefig(buffer, dpi=300, bbox_inches='tight', format='png')  # 保存图表到缓冲区（指定格式为png）
-    buffer.seek(0)  # 将缓冲区指针移到开头，否则读取不到数据
+    return result_data
 
-    save_path = f"ML/{target_column}.png"
-    ossUtils = OssUtils()
-    image_url = ossUtils.OssUpload(buffer, save_path)
-
-    plt.close()
-    return image_url
-
-def MLAnalysis(address:str) -> str:
-    # --------------------------
-    # 用户需要修改的参数
-    # --------------------------
-    CSV_PATH = "E:\github01\softwareProject/analysis-django/analysis/backend/utils/milano_traffic_nid.csv"  # 你的CSV数据路径
+def MLAnalysis(address,backtest_start_pct,forecast_steps):
     MODEL_PATH = "E:\github01\softwareModel\ML_MODEL/traffic_historical_model.joblib"  # 已保存的模型路径
     # 关键：需提前保存训练时的特征列（见下方说明）
     FEATURE_COLS_PATH = "E:\github01\softwareModel\ML_MODEL/feature_columns.joblib"
 
     # 执行预测与对比
-    image_url = predict_and_compare(
+    return predict_and_compare(
         csv_path=CSV_PATH,
         model_path=MODEL_PATH,
         target_column=address,
         feature_cols_path=FEATURE_COLS_PATH,
-        backtest_start_pct=0.5,  # 从数据中间开始预测
-        forecast_steps=48        # 预测48步（8小时，10分钟/步）
+        backtest_start_pct=backtest_start_pct,  # 从数据中间开始预测
+        forecast_steps=forecast_steps        # 预测48步（8小时，10分钟/步）
     )
-    return image_url
+
+def MLAnalysisWithoutPreTrain(address, train_ratio=0.8, n_lags=6):
+    df = pd.read_csv(CSV_PATH, index_col=0, parse_dates=True)
+    series = df[address].dropna()
+    if len(series) == 0:
+        raise ValueError(f"列 '{address}' 中无有效数据。")
+
+    if not isinstance(series.index, pd.DatetimeIndex):
+        raise ValueError("DataFrame 索引必须是 DatetimeIndex。")
+
+    # 划分训练集和测试集
+    n = len(series)
+    train_size = int(n * train_ratio)
+    train, test = series[:train_size], series[train_size:]
+
+    # 构建 lag 特征
+    def create_lagged_dataset(ts, n_lags):
+        data = pd.DataFrame(ts)
+        for i in range(1, n_lags + 1):
+            data[f'lag_{i}'] = ts.shift(i)
+        data.dropna(inplace=True)
+        X = data[[f'lag_{i}' for i in range(1, n_lags + 1)]].values
+        y = data[ts.name].values
+        return X, y
+
+    X_train, y_train = create_lagged_dataset(train, n_lags)
+
+    if len(X_train) == 0:
+        raise ValueError(f"训练数据不足，无法构建 {n_lags} 阶滞后特征。")
+
+    # 训练模型
+    model = RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1)
+    model.fit(X_train, y_train)
+
+    # 单步滚动预测（使用真实历史值）
+    predictions = []
+    history = list(train[-n_lags:])
+
+    for i in range(len(test)):
+        X_input = np.array(history[-n_lags:]).reshape(1, -1)
+        y_pred = model.predict(X_input)[0]
+        predictions.append(y_pred)
+        history.append(test.iloc[i])  # 使用真实值
+
+    pred_series = pd.Series(predictions, index=test.index)
+
+    # 评估指标
+    mae = mean_absolute_error(test, pred_series)
+    rmse = np.sqrt(mean_squared_error(test, pred_series))
+    mape = np.mean(np.abs((test - pred_series) / np.where(test == 0, 1e-8, test)))
+
+    # 转换为 JSON 安全格式
+    timestamps = test.index.strftime('%Y-%m-%d %H:%M:%S').tolist()
+    test_values = test.tolist()
+    pred_values = pred_series.tolist()
+
+    # ========== 准备放大图数据（前2小时）==========
+    zoom_test = []
+    zoom_pred = []
+    zoom_timestamps = []
+
+    if len(test) >= 2:
+        time_diff = (test.index[1] - test.index[0]).total_seconds()
+        if time_diff <= 0 or np.isnan(time_diff):
+            n_points = min(12, len(test))  # 默认 12 点（假设10分钟间隔）
+        else:
+            n_points = min(int((48 * 3600) / time_diff) + 1, len(test))  # 2小时 = 7200秒
+
+        zoom_test = test.iloc[:n_points].tolist()
+        zoom_pred = pred_series.iloc[:n_points].tolist()
+        zoom_timestamps = test.index[:n_points].strftime('%Y-%m-%d %H:%M:%S').tolist()
+
+    # 返回结构化数据
+    result = {
+        "plots":{
+            "main": {
+                "timestamps": timestamps,
+                "test_values": test_values,
+                "predictions": pred_values
+            },
+            "zoom": {
+                "timestamps": zoom_timestamps,
+                "test_values": zoom_test,
+                "predictions": zoom_pred
+            }
+        },
+        "metrics": {
+            "mae": float(mae),
+            "rmse": float(rmse),
+            "mape": float(mape)
+        }
+    }
+
+    return result

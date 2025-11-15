@@ -59,12 +59,12 @@ class AnomalyDetector:
         anomalies = np.abs(z_scores) > threshold
         return anomalies.astype(int)
 
-    def detect_isolation_forest(self, column, contamination=0.01, random_state=42):
+    def detect_isolation_forest(self, column,n_estimators=100, contamination=0.01):
         data = self.df[column].values.reshape(-1, 1)
         iso_forest = IsolationForest(
-            n_estimators=100,
+            n_estimators=n_estimators,
             contamination=contamination,
-            random_state=random_state
+            random_state=42
         )
         predictions = iso_forest.fit_predict(data)
         anomalies = (predictions == -1).astype(int)
@@ -80,18 +80,11 @@ class AnomalyDetector:
         return pd.Series(anomalies, index=self.df.index)
 
     # ---------------------- 新增：单方法执行与可视化 ----------------------
-    def run_single_method(self, location, method):
-        """根据指定method执行单个异常检测方法
-
-        参数:
-            location: 地点名称（需在self.locations中）
-            method: 检测方法标识，可选值：["iqr", "zscore", "isolation_forest", "dbscan"]
-            visualize: 是否可视化结果
-
-        返回:
-            包含该方法检测结果的DataFrame
-        """
+    def run_single_method(self,data):
+        print(data)
         # 1. 验证参数合法性
+        location = data["address"]
+        method = data["method"]
         if location not in self.locations:
             raise ValueError(f"地点 {location} 不在数据中，可选地点：{self.locations}")
         if method not in self.method_mapping:
@@ -101,10 +94,16 @@ class AnomalyDetector:
 
         # 2. 从映射字典中获取对应的检测函数和中文名称
         detect_func, method_cn_name = self.method_mapping[method]
+        print("寻找方法部分")
 
-        # 3. 执行检测，获取异常标记
-        anomaly_series = detect_func(location)  # 调用对应的检测方法
+        if method == 'iqr' or method == 'zscore':
+            anomaly_series = self.detect_iqr(location, threshold=data["threshold"])
+        elif method == 'isolation_forest':
+            anomaly_series = self.detect_isolation_forest(location, contamination=data["contamination"], n_estimators=data["n_estimators"])
+        else:
+            anomaly_series = self.detect_dbscan(location, eps=data["eps"],min_samples=data["min_samples"])
 
+        print("分析结束")
         # 4. 构造结果DataFrame（仅包含当前方法的结果）
         results = pd.DataFrame({
             'timestamp': self.df['timestamp'],
@@ -112,7 +111,17 @@ class AnomalyDetector:
             f'{method}_anomaly': anomaly_series  # 列名包含方法标识，便于区分
         })
 
-        return self.visualize_single_method(results, location, method, method_cn_name)
+        if anomaly_series.dtype == 'bool':
+            total_count = len(anomaly_series)
+            anomaly_count = anomaly_series.sum()  # True 视为 1
+        else:
+            total_count = len(anomaly_series)
+            anomaly_count = (anomaly_series == 1).sum()
+
+        anomaly_ratio = anomaly_count / total_count
+
+        print("返回值")
+        return location,method,method_cn_name,results,total_count,anomaly_count,anomaly_ratio
 
 
     def visualize_single_method(self, results, location, method, method_cn_name):
@@ -160,9 +169,79 @@ class AnomalyDetector:
 
         return image_url
 
+    def compare_methods_for_location(self, location):
+        if location not in self.locations:
+            raise ValueError(f"地点 {location} 不在数据中，可选地点：{self.locations}")
 
-# ---------------------- 对外调用函数（核心入口，根据method动态选择）----------------------
-def exceptionAnalysis(address: str, method: str) -> str:
+        method_names = []
+        anomaly_counts = []
+
+        for method_key, (detect_func, method_cn_name) in self.method_mapping.items():
+            try:
+                anomaly_series = detect_func(location)
+                count = (int)(anomaly_series.sum())
+                method_names.append(method_cn_name)
+                anomaly_counts.append(count)
+            except Exception as e:
+                print(f"方法 {method_key} 在地点 {location} 上执行失败: {e}")
+                method_names.append(method_cn_name)
+                anomaly_counts.append(0)
+        return method_names,anomaly_counts
+
+    def compare_locations_for_method(self, method):
+        if method not in self.method_mapping:
+            raise ValueError(
+                f"方法 {method} 不支持，可选方法：{list(self.method_mapping.keys())}"
+            )
+
+        detect_func, method_cn_name = self.method_mapping[method]
+        locations = []
+        anomaly_counts = []
+
+        for loc in self.locations:
+            try:
+                anomaly_series = detect_func(loc)
+                count = (int)(anomaly_series.sum())
+                locations.append(loc)
+                anomaly_counts.append(count)
+            except Exception as e:
+                print(f"方法 {method} 在地点 {loc} 上执行失败: {e}")
+                locations.append(loc)
+                anomaly_counts.append(0)
+        return locations,anomaly_counts
+
+        # # 排序（可选）：按异常数量降序
+        # sorted_pairs = sorted(zip(locations, anomaly_counts), key=lambda x: x[1], reverse=True)
+        # locations_sorted, counts_sorted = zip(*sorted_pairs) if sorted_pairs else ([], [])
+        #
+        # # 绘制柱状图
+        # fig, ax = plt.subplots(figsize=(12, 6))
+        # bars = ax.bar(locations_sorted, counts_sorted, color='lightcoral', edgecolor='darkred')
+        # ax.set_title(f'各地区异常点数量对比（{method_cn_name}）', fontsize=14)
+        # ax.set_ylabel('异常点数量', fontsize=12)
+        # ax.set_xlabel('地区', fontsize=12)
+        # ax.tick_params(axis='x', rotation=45)
+        #
+        # # 在柱子上显示数值（仅当数量>0）
+        # for bar, count in zip(bars, counts_sorted):
+        #     if count > 0:
+        #         ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + max(counts_sorted)*0.01,
+        #                 str(count), ha='center', va='bottom', fontsize=9)
+        #
+        # plt.tight_layout()
+        #
+        # buffer = io.BytesIO()
+        # plt.savefig(buffer, dpi=300, bbox_inches='tight', format='png')
+        # buffer.seek(0)
+        # plt.close()
+        #
+        # save_path = f"exception_compare/locations_{method}.png"
+        # ossUtils = OssUtils()
+        # image_url = ossUtils.OssUpload(buffer, save_path)
+        # return image_url
+
+
+def exceptionAnalysis(data):
     # 1. 加载数据（确保CSV路径正确，可根据实际情况调整）
     try:
         df = pd.read_csv('E:\github01\softwareProject/analysis-django/analysis/backend/utils/milano_traffic_nid.csv')
@@ -171,7 +250,16 @@ def exceptionAnalysis(address: str, method: str) -> str:
 
     # 2. 创建检测器实例
     detector = AnomalyDetector(df)
+    print("进入跑单个方法部分")
+    return detector.run_single_method(data)
 
-    # 3. 执行单个方法的检测（核心：传入address和method）
-    print(f"开始分析：地点={address}，方法={method}")
-    return detector.run_single_method(location=address, method=method)
+def compareMethodsForLocation(address: str):
+    df = pd.read_csv('E:\github01\softwareProject/analysis-django/analysis/backend/utils/milano_traffic_nid.csv')
+    detector = AnomalyDetector(df)
+    return detector.compare_methods_for_location(address)
+
+
+def compareLocationsForMethod(method: str):
+    df = pd.read_csv('E:\github01\softwareProject/analysis-django/analysis/backend/utils/milano_traffic_nid.csv')
+    detector = AnomalyDetector(df)
+    return detector.compare_locations_for_method(method)

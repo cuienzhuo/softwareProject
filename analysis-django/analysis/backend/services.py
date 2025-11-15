@@ -1,79 +1,98 @@
 from django.db import transaction
 from .models import AnomalyAnalysis, ClusterAnalysis, FuturePrediction
-from .utils import ARIMAUtils,DLUtils,MLUtils,TransformerUtils,ExceptionUtils,ClusterUtils
+from .utils import ARIMAUtils, DLUtils, MLUtils, TransformerUtils, ExceptionUtils, ClusterUtils, NotPreTrainTransformerr,PatchTSTUtils
+
 
 class ImageService:
     """图表存储服务（模拟图床功能，实际可对接阿里云OSS等）"""
+
     @staticmethod
     def upload_image(image_data=None):
         """上传图表到图床，返回URL（此处为模拟）"""
         # 实际开发中需替换为真实图床API调用
         return "https://example.com/charts/sample.png"
 
+
 class AnalysisService:
     """分析业务服务"""
+
     @staticmethod
     @transaction.atomic  # 事务确保数据一致性
-    def anomaly_analysis(address: str, method: str) -> str:
+    def anomaly_analysis(data):
         """执行异常数据分析，返回结果图表URL"""
-        # 1. 检查是否已有相同记录（避免重复计算）
-        print("检查数据库")
-        existing = AnomalyAnalysis.objects.filter(method=method, address=address).first()
-        if existing:
-            return existing.image_url
         print("进入分析部分")
 
-        # 生成图标并上传
-        image_url = ExceptionUtils.exceptionAnalysis(address,method)
-        
-        # 4. 保存记录到数据库
-        AnomalyAnalysis.objects.create(
-            method=method,
-            address=address,
-            image_url=image_url
-        )
-        return image_url
+        return ExceptionUtils.exceptionAnalysis(data)
 
     @staticmethod
     @transaction.atomic
-    def cluster_analysis(address: str) -> str:
-        """执行聚类分析，返回结果图表URL"""
-        existing = ClusterAnalysis.objects.filter(address=address).first()
-        if existing:
-            return existing.image_url
-
-        image_url = ClusterUtils.clusterAnalysis(address)
-
-        # 保存记录
-        ClusterAnalysis.objects.create(
-            address=address,
-            image_url=image_url
-        )
-        return image_url
+    def cluster_analysis(clusters):
+        return ClusterUtils.clusterAnalysis(clusters)
 
     @staticmethod
     @transaction.atomic
-    def future_prediction(address: str, method: str) -> str:
-        """执行未来预测，返回结果图表URL"""
-        existing = FuturePrediction.objects.filter(method=method, address=address).first()
-        if existing:
-            return existing.image_url
-
-        if method == "arima":
-            image_url = ARIMAUtils.arimaAnalysis(address)
-        elif method == "ML":
-            image_url = MLUtils.MLAnalysis(address)
-        elif method == "DL":
-            image_url = DLUtils.DLAnalysis(address)
-        elif method == "transformer":
-            image_url = TransformerUtils.transformerAnalysis(address)
+    def future_prediction(data):
+        address = data['address']
+        method = data['method']
+        usePreTrained = data['usePretrained']
+        if method == "arima" and usePreTrained:
+            return ARIMAUtils.arimaAnalysis(address, data['forecast_steps'])
+        elif method == "random_forest" and usePreTrained:
+            return MLUtils.MLAnalysis(address, data["backtest_start_pct"], data["forecast_steps"])
+        elif method == "lstm" and usePreTrained:
+            return DLUtils.DLAnalysis(address, data['roll_steps'])
+        elif method == "autoformer" and usePreTrained:
+            return TransformerUtils.transformerAnalysis(address, data['roll_steps'])
+        elif method == "arima" and not usePreTrained:
+            return ARIMAUtils.arimaAnalysisWithoutPreTrained(address, data['train_ratio'], data['p'],
+                                                             data['d'], ['q'], data['forecast_steps'])
+        elif method == "random_forest" and not usePreTrained:
+            return MLUtils.MLAnalysisWithoutPreTrain(address, data['train_ratio'], data['n_lags'])
+        elif method == "lstm" and not usePreTrained:
+            return DLUtils.DLAnalysisWithoutPreTrain(address, data['train_ratio'], data['look_back'], data['epochs'],
+                                                     data['batch_size'], data['lstm_units'])
+        elif method == "autoformer" and not usePreTrained:
+            return NotPreTrainTransformerr.main(address, data['look_back'], data["forecast_horizon"]
+                                                , data["epochs"], data["roll_steps"])
+        elif method == "patchtst":
+            return PatchTSTUtils.patchtstAnalysis(address,data['train_ratio'],data['seq_len'],data['pred_len'],
+                                                  data['patch_len'],data['stride'],data['epochs'],data['batch_size'])
         else:
             raise ValueError("输入方法有误")
 
-        # 保存记录
-        FuturePrediction.objects.create(
-            method=method,
-            address=address,
-            image_url=image_url
-        )
-        return image_url
+    @staticmethod
+    @transaction.atomic  # 事务确保数据一致性
+    def anomaly_compare(data):
+        if 'address' in data:
+            return ExceptionUtils.compareMethodsForLocation(data['address'])
+        if 'method' in data:
+            return ExceptionUtils.compareLocationsForMethod(data['method'])
+
+    @staticmethod
+    @transaction.atomic
+    def future_compare(address):
+        methods = {
+            "ML": MLUtils.MLAnalysisWithoutPreTrain,
+            # "ARIMA": ARIMAUtils.arimaAnalysisWithoutPreTrained,
+            "DL": DLUtils.DLAnalysisWithoutPreTrain,
+            "Transformer": NotPreTrainTransformerr.main,
+            "PatchTST": PatchTSTUtils.patchtstAnalysis
+        }
+
+        mape_results = {}
+
+        for method_name, func in methods.items():
+            try:
+                result_obj = func(address)
+                mape = result_obj['metrics']['mape']
+                mape_results[method_name] = mape*100
+                print("成功")
+            except Exception as e:
+                print(str(e))
+                # 可选：记录错误或设置为 None / NaN
+                mape_results[method_name] = None  # 或 float('nan')
+                # 如果需要调试，可以打印错误信息：
+                # print(f"Error in {method_name}: {e}")
+
+        return mape_results
+
