@@ -20,7 +20,7 @@ const chartRef = ref(null)
 let myChart = null
 
 // 初始化或更新图表
-const initChart = () => {
+const initChart = (data) => {
   if (!chartRef.value) return
 
   // 销毁旧实例
@@ -36,7 +36,7 @@ const initChart = () => {
     val_actual,
     val_predicted,
     split_time
-  } = props.chartData
+  } = data
 
   // 提取 x 轴时间（去重并排序）
   const allTimes = new Set()
@@ -141,13 +141,20 @@ const initChart = () => {
   myChart.setOption(option)
 }
 
-// 响应 chartData 变化
-watch(() => props.chartData, initChart, { deep: true })
+watch(
+  () => props.chartData,
+  (newData) => {
+    if (!newData) return;
+    initChart(newData);
+  },
+  { deep: true }
+);
 
-// 组件挂载后初始化
 onMounted(() => {
-  initChart()
-})
+  if (props.chartData) {
+    initChart(props.chartData);
+  }
+});
 
 // 组件卸载时销毁图表
 onUnmounted(() => {
